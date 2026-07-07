@@ -1,0 +1,12 @@
+{
+  "model": "best_model.joblib",
+  "best": "xgb",
+  "results": {
+    "rf": {
+      "score": -16.64205460178185
+    },
+    "xgb": {
+      "score": -16.143328237339926
+    }
+  }
+}

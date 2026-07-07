@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: ripecrate-backend
+    env: python
+    plan: starter
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "uvicorn app.main:app --host 0.0.0.0 --port $PORT"
+    envVars:
+      - key: DATABASE_URL
+        value: "postgresql://<user>:<password>@<host>:<port>/<db>"
+      - key: JWT_SECRET_KEY
+        value: "change-this-secret-in-production"
+      - key: ENV
+        value: "production"
+    autoDeploy: true
