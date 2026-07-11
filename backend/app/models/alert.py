@@ -34,4 +34,5 @@ class Alert(Base):
     batch_id = Column(String, ForeignKey("produce_batches.id"), nullable=True)
     batch = relationship("ProduceBatch", back_populates="alerts")
     is_read = Column(Boolean, default=False)
+    resolved = Column(Boolean, default=False)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))

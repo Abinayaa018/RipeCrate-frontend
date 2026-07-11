@@ -39,3 +39,24 @@ def mark_alert_read(alert_id: str, db: Session = Depends(get_db), current_user: 
     alert.is_read = True
     db.commit()
     return alert
+
+
+@router.post("/{alert_id}/resolve")
+def resolve_alert(alert_id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    alert = db.query(Alert).filter(Alert.id == alert_id).first()
+    if not alert:
+        raise HTTPException(status_code=404, detail="Alert not found.")
+    alert.is_read = True
+    alert.resolved = True
+    db.commit()
+    return {"id": alert_id, "resolved": True}
+
+
+@router.post("/resolve-all")
+def resolve_all_alerts(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    updated = db.query(Alert).filter(Alert.is_read.is_(False)).all()
+    for a in updated:
+        a.is_read = True
+        a.resolved = True
+    db.commit()
+    return {"resolved": len(updated)}

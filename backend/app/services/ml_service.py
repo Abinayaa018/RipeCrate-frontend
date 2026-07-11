@@ -1,174 +1,203 @@
 """
-Model loader and prediction helpers used by the API router.
+ML service — loads spoilage_classifier.joblib + shelf_life_regressor.joblib
+produced by ml/train_model.py and maps API request fields to dataset features.
 
-This module supports multiple model layouts for backwards compatibility:
-- `app.ml_models/model_shelf_life.pkl` + `model_spoilage.pkl` (legacy)
-- `ml/models/best_model.joblib` (new training pipeline)
-
-If only a shelf-life regression model is available, we compute a
-simple spoilage probability from the predicted shelf life for now.
+Feature mapping (API → dataset):
+  temperature_c        → storage_temp
+  humidity_pct         → (not directly in dataset; used for heuristic adjustment)
+  days_since_harvest   → days_remaining_at_purchase (inverted proxy)
+  transportation_time_hrs → distribution_hours
+  packaging            → packaging_score (ordinal)
+  storage_type         → (affects temp_deviation proxy)
+  produce_name         → category (mapped)
+  warehouse_location   → region (mapped)
+  quantity_kg          → (not a model feature; used for context only)
 """
 import json
-import os
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Optional
 
 import joblib
+import numpy as np
 import pandas as pd
 
 from app.config import settings
 
+_MODELS_DIR = Path(settings.ML_MODELS_DIR)
+_clf = None          # spoilage classifier pipeline
+_reg = None          # shelf-life regressor pipeline
+_meta: dict = {}
+_loaded = False
 
-_MODELS_DIR = settings.ML_MODELS_DIR
-_shelf_life_model = None
-_spoilage_model = None
-_models_loaded = False
+# ── Ordinal maps ──────────────────────────────────────────────────────────────
+_PACKAGING_SCORE = {
+    "ventilated crate": 6, "map sealed": 9, "wax carton": 7,
+    "reusable tote": 5, "none": 3,
+}
+_PRODUCE_CATEGORY = {
+    "tomatoes": "vegetables", "berries": "fruits", "strawberries": "fruits",
+    "leafy greens": "vegetables", "avocados": "fruits", "dairy": "dairy",
+    "mangoes": "fruits", "unknown": "vegetables",
+}
+_REGION_MAP = {
+    "north hub": "north", "south vault": "south", "east cold": "east",
+    "port gate": "west", "retail dock": "north", "eu relay": "east",
+    "unknown": "north",
+}
+_QUALITY_GRADE = {"A": "A", "B": "B", "C": "C"}
 
 
-def _load_models():
-    """Attempt to load models from several known locations."""
-    global _shelf_life_model, _spoilage_model, _models_loaded
-    if _models_loaded:
-        return
-
-    # 1) Legacy layout from settings.ML_MODELS_DIR
-    sl_path = Path(_MODELS_DIR) / "model_shelf_life.pkl"
-    sp_path = Path(_MODELS_DIR) / "model_spoilage.pkl"
-    if sl_path.exists() and sp_path.exists():
-        _shelf_life_model = joblib.load(sl_path)
-        _spoilage_model = joblib.load(sp_path)
-        _models_loaded = True
-        return
-
-    # 2) New training location: repository ml/models/best_model.joblib
+def _resolve_models_dir() -> Path:
+    """Try settings path first, then repo-relative ml/models."""
+    p = _MODELS_DIR
+    if (p / "spoilage_classifier.joblib").exists():
+        return p
     repo_root = Path(__file__).resolve().parents[2]
-    candidate = repo_root / "ml" / "models" / "best_model.joblib"
-    if candidate.exists():
-        try:
-            _shelf_life_model = joblib.load(candidate)
-            _spoilage_model = None
-            _models_loaded = True
-            return
-        except Exception:
-            pass
-
-    # 3) settings ML_MODELS_DIR best_model.joblib
-    candidate2 = Path(_MODELS_DIR) / "best_model.joblib"
-    if candidate2.exists():
-        try:
-            _shelf_life_model = joblib.load(candidate2)
-            _spoilage_model = None
-            _models_loaded = True
-            return
-        except Exception:
-            pass
-
-    _models_loaded = True
+    alt = repo_root / "ml" / "models"
+    if (alt / "spoilage_classifier.joblib").exists():
+        return alt
+    return p
 
 
-def _heuristic_predict(payload: dict) -> tuple[float, float]:
-    """Simple explainable fallback used when trained models are absent."""
-    base_life = 14.0
-    temp_penalty = abs(payload.get("temperature_c", 5) - 5) * 0.6
-    humidity_penalty = abs(payload.get("humidity_pct", 90) - 90) * 0.08
-    transport_penalty = payload.get("transportation_time_hrs", 0) / 24 * 1.0
-    shelf_life = max(0.5, base_life - temp_penalty - humidity_penalty - transport_penalty)
-    spoilage_prob = min(0.98, max(0.02, 1 - (shelf_life / base_life)))
-    return round(shelf_life, 1), round(spoilage_prob, 4)
+def _load():
+    global _clf, _reg, _meta, _loaded
+    if _loaded:
+        return
+    _loaded = True
+    d = _resolve_models_dir()
+    clf_path = d / "spoilage_classifier.joblib"
+    reg_path = d / "shelf_life_regressor.joblib"
+    meta_path = d / "model_meta.json"
+    try:
+        if clf_path.exists():
+            _clf = joblib.load(clf_path)
+        if reg_path.exists():
+            _reg = joblib.load(reg_path)
+        if meta_path.exists():
+            with open(meta_path) as f:
+                _meta = json.load(f)
+    except Exception as exc:
+        print(f"[ml_service] model load warning: {exc}")
 
 
-def predict(payload: dict) -> dict:
-    """Return prediction dictionary used by the `/api/predictions` router.
+def _build_row(payload: dict) -> pd.DataFrame:
+    """Convert API payload dict → single-row DataFrame matching training features."""
+    temp = float(payload.get("temperature_c", 5.0))
+    humidity = float(payload.get("humidity_pct", 90.0))
+    transport_hrs = float(payload.get("transportation_time_hrs", 0.0))
+    packaging_raw = str(payload.get("packaging", "none")).lower()
+    produce_raw = str(payload.get("produce_name", "unknown")).lower()
+    warehouse_raw = str(payload.get("warehouse_location", "unknown")).lower()
+    storage_type = str(payload.get("storage_type", "ambient")).lower()
 
-    Expects harvest_date as a `datetime.date` instance.
-    """
-    _load_models()
-    harvest_date: date = payload.get("harvest_date")
+    harvest_date = payload.get("harvest_date")
     if isinstance(harvest_date, str):
         try:
             harvest_date = date.fromisoformat(harvest_date)
         except Exception:
             harvest_date = date.today()
+    days_since = max(0, (date.today() - harvest_date).days) if harvest_date else 0
 
-    days_since_harvest = (date.today() - harvest_date).days if harvest_date else 0
-    days_since_harvest = max(0, days_since_harvest)
+    # Derive dataset features
+    ideal_temp = 4.0 if "cold" in storage_type or "refrigerat" in storage_type else 8.0
+    temp_deviation = abs(temp - ideal_temp)
+    packaging_score = _PACKAGING_SCORE.get(packaging_raw, 5)
+    handling_score = max(1, 10 - round(transport_hrs / 4))
+    shelf_life_days_base = max(1, 14 - days_since)
+    days_remaining = max(0, shelf_life_days_base - days_since // 2)
+    spoilage_sensitivity = min(10, max(1, round(temp_deviation * 1.2 + (humidity - 90) * 0.1 + 3)))
+    distribution_hours = transport_hrs
+    daily_demand = 50.0
+    demand_variability = 0.2
+    supplier_score = 7.5
+    today = date.today()
+    day_of_week = today.weekday()
+    is_weekend = int(day_of_week >= 5)
+    month = today.month
+    temp_abuse_events = int(temp_deviation > 3)
 
-    row = pd.DataFrame([{
-        "temperature_c": payload.get("temperature_c", 5.0),
-        "humidity_pct": payload.get("humidity_pct", 90.0),
-        "days_since_harvest": days_since_harvest,
-        "transportation_time_hrs": payload.get("transportation_time_hrs", 0.0),
-        "weight_kg": payload.get("quantity_kg", 0.0),
-        "produce": payload.get("produce_name", "unknown"),
-        "storage_type": payload.get("storage_type", "ambient"),
-        "packaging": payload.get("packaging", "none"),
-        "warehouse": payload.get("warehouse_location", "unknown"),
+    category = _PRODUCE_CATEGORY.get(produce_raw, "vegetables")
+    region = _REGION_MAP.get(warehouse_raw, "north")
+    quality_grade = "B"
+
+    return pd.DataFrame([{
+        "storage_temp": temp,
+        "temp_deviation": temp_deviation,
+        "spoilage_sensitivity": spoilage_sensitivity,
+        "temp_abuse_events": temp_abuse_events,
+        "distribution_hours": distribution_hours,
+        "handling_score": handling_score,
+        "packaging_score": packaging_score,
+        "shelf_life_days": shelf_life_days_base,
+        "days_remaining_at_purchase": days_remaining,
+        "daily_demand": daily_demand,
+        "demand_variability": demand_variability,
+        "supplier_score": supplier_score,
+        "day_of_week": day_of_week,
+        "is_weekend": is_weekend,
+        "month": month,
+        "category": category,
+        "region": region,
+        "quality_grade": quality_grade,
     }])
 
-    if _shelf_life_model is not None:
-        # Ensure DataFrame contains all columns expected by the model's preprocessor
+
+def _heuristic(payload: dict) -> tuple[float, float, float]:
+    """Fallback when models are not loaded."""
+    temp = float(payload.get("temperature_c", 5.0))
+    humidity = float(payload.get("humidity_pct", 90.0))
+    transport = float(payload.get("transportation_time_hrs", 0.0))
+    base = 14.0
+    shelf = max(0.5, base - abs(temp - 5) * 0.6 - abs(humidity - 90) * 0.08 - transport / 24)
+    spoilage = min(0.97, max(0.03, 1 - shelf / base))
+    return round(shelf, 1), round(spoilage, 4), 0.62
+
+
+def predict(payload: dict) -> dict:
+    _load()
+    row = _build_row(payload)
+
+    if _clf is not None and _reg is not None:
         try:
-            pre = _shelf_life_model.named_steps.get("pre")
-        except Exception:
-            pre = None
-
-        if pre is not None and hasattr(pre, "transformers_"):
-            expected_cols = []
-            numeric_cols = set()
-            cat_cols = set()
-            for name, transformer, cols in pre.transformers_:
-                # cols may be a list of column names
-                if isinstance(cols, (list, tuple)) and all(isinstance(c, str) for c in cols):
-                    expected_cols.extend(cols)
-                    # classify numeric vs categorical by transformer type
-                    from sklearn.preprocessing import StandardScaler
-
-                    if isinstance(transformer, StandardScaler) or transformer.__class__.__name__.lower().startswith("standard"):
-                        numeric_cols.update(cols)
-                    else:
-                        # assume remaining are categorical (OneHotEncoder or similar)
-                        cat_cols.update(cols)
-
-            # Add any missing expected columns with sensible defaults
-            for c in expected_cols:
-                if c not in row.columns:
-                    if c in numeric_cols:
-                        row[c] = 0.0
-                    else:
-                        row[c] = "__missing__"
-
-            # Reorder columns to expected (ColumnTransformer will align but keeping order helps)
-            try:
-                row = row[expected_cols]
-            except Exception:
-                pass
-
+            spoilage_proba = float(_clf.predict_proba(row)[0][1])
+            shelf_life = float(max(0.5, _reg.predict(row)[0]))
+            # Confidence = 1 - entropy of classifier output
+            p = np.clip(spoilage_proba, 1e-6, 1 - 1e-6)
+            entropy = -(p * np.log(p) + (1 - p) * np.log(1 - p))
+            confidence = round(float(1 - entropy / np.log(2)), 4)
+            using_model = True
+        except Exception as exc:
+            print(f"[ml_service] predict error: {exc}")
+            shelf_life, spoilage_proba, confidence = _heuristic(payload)
+            using_model = False
+    elif _reg is not None:
         try:
-            shelf_life_days = float(max(0.2, _shelf_life_model.predict(row)[0]))
+            shelf_life = float(max(0.5, _reg.predict(row)[0]))
+            spoilage_proba = min(0.97, max(0.03, 1 - shelf_life / 30))
+            confidence = 0.78
+            using_model = True
         except Exception:
-            shelf_life_days = float(max(0.2, _shelf_life_model.predict(row.values)[0]))
-        # If we don't have a spoilage classifier, derive a simple spoilage prob
-        spoilage_prob = min(0.98, max(0.02, 1 - (shelf_life_days / 30)))
-        confidence = 0.8
+            shelf_life, spoilage_proba, confidence = _heuristic(payload)
+            using_model = False
     else:
-        shelf_life_days, spoilage_prob = _heuristic_predict(payload)
-        confidence = 0.65
+        shelf_life, spoilage_proba, confidence = _heuristic(payload)
+        using_model = False
 
-    if spoilage_prob >= 0.66:
+    if spoilage_proba >= 0.66:
         risk_level = "High"
-    elif spoilage_prob >= 0.33:
+    elif spoilage_proba >= 0.33:
         risk_level = "Medium"
     else:
         risk_level = "Low"
 
-    estimated_expiry_date = date.today() + timedelta(days=round(shelf_life_days))
+    expiry = date.today() + timedelta(days=round(shelf_life))
 
     return {
-        "predicted_shelf_life_days": round(shelf_life_days, 1),
-        "spoilage_probability": round(spoilage_prob, 4),
+        "predicted_shelf_life_days": round(shelf_life, 1),
+        "spoilage_probability": round(spoilage_proba, 4),
         "confidence_score": round(confidence, 4),
         "risk_level": risk_level,
-        "estimated_expiry_date": estimated_expiry_date,
-        "using_trained_model": _shelf_life_model is not None,
+        "estimated_expiry_date": expiry,
+        "using_trained_model": using_model,
     }
