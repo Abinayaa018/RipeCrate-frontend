@@ -1,69 +1,104 @@
+import { useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { BarChartIcon, BoxIcon, DashboardIcon, PieChartIcon, StarIcon } from '@radix-ui/react-icons'
+import {
+  BarChartIcon,
+  BellIcon,
+  BoxIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  DashboardIcon,
+  ExitIcon,
+  GearIcon,
+  LightningBoltIcon,
+  PieChartIcon,
+  ReaderIcon,
+  RocketIcon,
+  StarIcon,
+} from '@radix-ui/react-icons'
 
-const items = [
-  { path: '/', label: 'Dashboard', icon: DashboardIcon },
-  { path: '/prediction', label: 'AI Prediction', icon: PieChartIcon },
+const navItems = [
+  { path: '/dashboard', label: 'Dashboard', icon: DashboardIcon },
+  { path: '/command-center', label: 'Command Center', icon: RocketIcon },
+  { path: '/prediction', label: 'Prediction Lab', icon: PieChartIcon },
   { path: '/inventory', label: 'Inventory', icon: BoxIcon },
+  { path: '/warehouses', label: 'Warehouses', icon: StarIcon },
   { path: '/analytics', label: 'Analytics', icon: BarChartIcon },
+  { path: '/reports', label: 'Reports', icon: ReaderIcon },
+  { path: '/alerts', label: 'Alerts', icon: BellIcon },
+  { path: '/settings', label: 'Settings', icon: GearIcon },
 ]
 
-function Sidebar() {
+export default function Sidebar() {
   const location = useLocation()
+  const [collapsed, setCollapsed] = useState(false)
 
   return (
-    <aside className="hidden w-72 shrink-0 border-r border-white/10 bg-surface px-6 py-6 lg:block">
-      <div className="flex flex-col gap-8">
-        <div>
-          <div className="mb-8 inline-flex items-center gap-3 rounded-2xl border border-white/10 bg-[#121a2d] px-4 py-3 shadow-soft">
-            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#0F1A2F] text-accent">
-              <StarIcon width={20} height={20} />
-            </div>
-            <div>
-              <p className="text-sm font-semibold uppercase tracking-[0.24em] text-muted">RipeCrate</p>
-              <p className="text-sm text-text/90">Cold-chain intelligence</p>
-            </div>
-          </div>
-          <nav className="space-y-2">
-            {items.map(item => {
-              const Icon = item.icon
-              const active = location.pathname === item.path
-              return (
-                <Link
-                  key={item.path}
-                  to={item.path}
-                  className={`group flex items-center gap-3 rounded-3xl px-4 py-3 text-sm font-medium transition-all duration-200 ${
-                    active ? 'bg-accent/10 text-accent shadow-soft' : 'text-muted hover:bg-white/5 hover:text-text'
-                  }`}
-                >
-                  <Icon className="h-5 w-5" />
-                  {item.label}
-                </Link>
-              )
-            })}
-          </nav>
+    <aside
+      className={`hidden shrink-0 flex-col border-r border-white/10 bg-[#06101f]/90 backdrop-blur-2xl transition-all duration-300 lg:flex ${
+        collapsed ? 'w-[72px]' : 'w-[240px]'
+      }`}
+    >
+      <div className="flex flex-1 flex-col gap-1 overflow-y-auto px-3 py-4">
+        {/* Collapse toggle */}
+        <div className={`mb-2 flex ${collapsed ? 'justify-center' : 'justify-end'}`}>
+          <button
+            onClick={() => setCollapsed(c => !c)}
+            className="grid h-7 w-7 place-items-center rounded-[10px] text-muted transition hover:bg-white/[0.06] hover:text-text"
+            title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          >
+            {collapsed ? (
+              <ChevronRightIcon className="h-4 w-4" />
+            ) : (
+              <ChevronLeftIcon className="h-4 w-4" />
+            )}
+          </button>
         </div>
 
-        <div className="rounded-3xl border border-white/10 bg-[#111826] p-5 text-sm">
-          <p className="mb-3 text-xs uppercase tracking-[0.32em] text-muted">Cold chain flow</p>
-          <div className="space-y-3">
-            <div className="flex items-center justify-between rounded-2xl bg-surface2 px-4 py-3 text-xs text-muted">
-              <span>Warehouse</span>
-              <span className="text-accent">Online</span>
-            </div>
-            <div className="flex items-center justify-between rounded-2xl bg-surface2 px-4 py-3 text-xs text-muted">
-              <span>Storage</span>
-              <span className="text-accent">Stable</span>
-            </div>
-            <div className="flex items-center justify-between rounded-2xl bg-surface2 px-4 py-3 text-xs text-muted">
-              <span>Engine</span>
-              <span className="text-accent">Active</span>
-            </div>
-          </div>
-        </div>
+        {/* Nav links */}
+        <nav className="space-y-0.5">
+          {navItems.map(item => {
+            const Icon = item.icon
+            const active =
+              location.pathname === item.path ||
+              (item.path === '/dashboard' && location.pathname === '/')
+            return (
+              <Link
+                key={item.path}
+                to={item.path}
+                title={collapsed ? item.label : undefined}
+                className={`group flex items-center gap-3 rounded-[14px] px-3 py-2.5 text-sm font-medium transition-all duration-150 ${
+                  active
+                    ? 'bg-accent/10 text-accent border border-accent/20'
+                    : 'border border-transparent text-muted hover:bg-white/[0.05] hover:text-text'
+                } ${collapsed ? 'justify-center' : ''}`}
+              >
+                <Icon
+                  className={`h-4 w-4 shrink-0 ${active ? 'text-accent' : 'text-muted group-hover:text-text'}`}
+                />
+                {!collapsed && (
+                  <span className="truncate tracking-wide">{item.label}</span>
+                )}
+                {!collapsed && active && (
+                  <span className="ml-auto h-1.5 w-1.5 rounded-full bg-accent" />
+                )}
+              </Link>
+            )
+          })}
+        </nav>
+      </div>
+
+      {/* Logout */}
+      <div className="border-t border-white/10 px-3 py-3">
+        <button
+          className={`group flex w-full items-center gap-3 rounded-[14px] px-3 py-2.5 text-sm font-medium text-muted transition hover:bg-danger/10 hover:text-danger ${
+            collapsed ? 'justify-center' : ''
+          }`}
+          title={collapsed ? 'Logout' : undefined}
+        >
+          <ExitIcon className="h-4 w-4 shrink-0" />
+          {!collapsed && <span>Logout</span>}
+        </button>
       </div>
     </aside>
   )
 }
-
-export default Sidebar

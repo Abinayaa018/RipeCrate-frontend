@@ -4,6 +4,8 @@
 
 :root {
   color-scheme: dark;
+  font-family: 'Inter', sans-serif;
+  background: #071224;
 }
 
 html, body, #root {
@@ -12,9 +14,13 @@ html, body, #root {
 
 body {
   margin: 0;
-  background: #0E1726;
-  color: #F8FAFC;
-  font-family: 'Inter', sans-serif;
+  background:
+    radial-gradient(circle at 8% 8%, rgba(54, 215, 255, 0.18), transparent 24%),
+    radial-gradient(circle at 88% 12%, rgba(124, 255, 107, 0.1), transparent 18%),
+    radial-gradient(circle at 48% 96%, rgba(255, 184, 77, 0.1), transparent 18%),
+    linear-gradient(180deg, #071224 0%, #0e1830 42%, #071224 100%);
+  color: #f8fafc;
+  overflow-x: hidden;
 }
 
 * {
@@ -22,6 +28,238 @@ body {
 }
 
 ::selection {
-  background: rgba(50, 212, 245, 0.2);
-  color: #F8FAFC;
+  background: rgba(54, 215, 255, 0.24);
+  color: #f8fafc;
+}
+
+.font-display {
+  font-family: 'Space Grotesk', 'Inter', sans-serif;
+}
+
+.cold-grid {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  overflow: hidden;
+}
+
+.cold-grid::before {
+  content: '';
+  position: absolute;
+  inset: -20%;
+  background-image:
+    linear-gradient(rgba(54, 215, 255, 0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(54, 215, 255, 0.08) 1px, transparent 1px);
+  background-size: 84px 84px;
+  transform: perspective(700px) rotateX(58deg) translateY(-15%);
+  transform-origin: top;
+  animation: gridDrift 18s linear infinite;
+  opacity: 0.48;
+}
+
+.cold-grid::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    radial-gradient(circle, rgba(54, 215, 255, 0.72) 0 2px, transparent 3px),
+    radial-gradient(circle, rgba(124, 255, 107, 0.5) 0 1px, transparent 3px);
+  background-size: 220px 140px, 160px 180px;
+  animation: particleDrift 24s linear infinite;
+  opacity: 0.28;
+}
+
+.route-lines {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background:
+    linear-gradient(115deg, transparent 0 20%, rgba(54, 215, 255, 0.16) 20.5%, transparent 21% 100%),
+    linear-gradient(35deg, transparent 0 42%, rgba(124, 255, 107, 0.12) 42.5%, transparent 43% 100%),
+    linear-gradient(155deg, transparent 0 58%, rgba(255, 184, 77, 0.12) 58.5%, transparent 59% 100%);
+  filter: blur(0.2px);
+  opacity: 0.7;
+}
+
+.noise {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.12;
+  background-image:
+    radial-gradient(circle at 25% 30%, rgba(255,255,255,0.28) 0 1px, transparent 1px),
+    radial-gradient(circle at 75% 60%, rgba(255,255,255,0.2) 0 1px, transparent 1px);
+  background-size: 9px 11px, 13px 17px;
+}
+
+.panel {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background:
+    linear-gradient(145deg, rgba(23, 35, 62, 0.88), rgba(7, 18, 36, 0.76)),
+    rgba(14, 24, 48, 0.74);
+  box-shadow: 0 26px 90px rgba(2, 10, 28, 0.5), inset 0 1px 0 rgba(255,255,255,0.07);
+  backdrop-filter: blur(22px);
+}
+
+.panel::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(135deg, rgba(54,215,255,0.46), rgba(124,255,107,0.16), rgba(255,184,77,0.2), rgba(255,255,255,0.05));
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+.panel-soft {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(11, 26, 49, 0.78);
+  box-shadow: inset 0 0 42px rgba(255,255,255,0.035);
+}
+
+.lift-card {
+  transition: transform 240ms ease, border-color 240ms ease, box-shadow 240ms ease, background 240ms ease;
+}
+
+.lift-card:hover {
+  transform: translateY(-4px);
+  border-color: rgba(54, 215, 255, 0.34);
+  box-shadow: 0 22px 70px rgba(54, 215, 255, 0.1);
+}
+
+.ripple {
+  position: relative;
+  overflow: hidden;
+}
+
+.ripple::after {
+  content: '';
+  position: absolute;
+  inset: auto auto 50% 50%;
+  width: 0;
+  height: 0;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.2);
+  transform: translate(-50%, 50%);
+  transition: width 420ms ease, height 420ms ease, opacity 420ms ease;
+  opacity: 0;
+}
+
+.ripple:active::after {
+  width: 240px;
+  height: 240px;
+  opacity: 1;
+  transition: 0s;
+}
+
+.status-dot {
+  position: relative;
+}
+
+.status-dot::after {
+  content: '';
+  position: absolute;
+  inset: -8px;
+  border-radius: inherit;
+  border: 1px solid currentColor;
+  opacity: 0.45;
+  animation: statusPulse 2s ease-out infinite;
+}
+
+.terminal-row {
+  font-family: 'JetBrains Mono', monospace;
+  animation: feedIn 560ms ease both;
+}
+
+.blink-slow {
+  animation: blinkSlow 2.6s ease-in-out infinite;
+}
+
+.skeleton {
+  background: linear-gradient(90deg, rgba(255,255,255,0.04), rgba(54,215,255,0.16), rgba(255,255,255,0.04));
+  background-size: 200% 100%;
+  animation: shimmer 2.2s ease infinite;
+}
+
+.page-enter {
+  animation: pageEnter 520ms ease both;
+}
+
+.card-enter {
+  animation: cardEnter 620ms ease both;
+}
+
+.flow-dot {
+  animation: flowMove 3.5s linear infinite;
+}
+
+.bell-wiggle:hover {
+  animation: bellWiggle 480ms ease;
+}
+
+@keyframes pageEnter {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes cardEnter {
+  from { opacity: 0; transform: translateY(18px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes gridDrift {
+  from { background-position: 0 0; }
+  to { background-position: 84px 84px; }
+}
+
+@keyframes particleDrift {
+  from { background-position: 0 0, 0 0; }
+  to { background-position: 220px 140px, -160px 180px; }
+}
+
+@keyframes statusPulse {
+  from { transform: scale(0.5); opacity: 0.55; }
+  to { transform: scale(1.8); opacity: 0; }
+}
+
+@keyframes feedIn {
+  from { opacity: 0; transform: translateX(-12px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes blinkSlow {
+  0%, 100% { box-shadow: 0 0 0 rgba(255,92,92,0); }
+  50% { box-shadow: 0 0 34px rgba(255,92,92,0.18); }
+}
+
+@keyframes shimmer {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+
+@keyframes flowMove {
+  from { offset-distance: 0%; }
+  to { offset-distance: 100%; }
+}
+
+@keyframes bellWiggle {
+  0%, 100% { transform: rotate(0deg); }
+  25% { transform: rotate(12deg); }
+  75% { transform: rotate(-12deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
 }
