@@ -1,4 +1,4 @@
-const BASE = import.meta.env.VITE_API_BASE_URL ?? ''
+const BASE = import.meta.env.VITE_API_BASE_URL ?? 'https://ripecrate-backend-xble.onrender.com'
 
 // ── Token storage ─────────────────────────────────────────────────────────────
 const TOKEN_KEY = 'rc_token'
